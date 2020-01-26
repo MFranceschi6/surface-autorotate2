@@ -1,17 +1,19 @@
 #!/usr/bin/python3
 
+
 #####CONFIGURATION#####
 sensorname="accel_3d"
 displayname="eDP1" # On some kernels/drivers this may be eDP-1
 
 inputnames=[
-        "NTRG0001:01 1B96:1B05"
+        "ipts 045E:0021 Touchscreen",
+        "ipts 045E:0021 Pen \(0\)",
+        "ipts 045E:0021 Eraser \(0\)"
         ]
 
 pennames=[
-        "NTRG0001:01 1B96:1B05 Pen stylus",
-        "NTRG0001:01 1B96:1B05 Pen pad",
-        "NTRG0001:01 1B96:1B05 Pen eraser"
+            
+            #"ipts 045E:0021 Eraser \(0\)"
         ]
 
 #####PROGRAM CODE#####
@@ -33,10 +35,10 @@ orientations=[
         ]
 
 matrices=[
-        [1,0,0,0,1,0,0,0,1],
-        [-1,0,1,0,-1,1,0,0,1],
-        [0,-1,1,1,0,0,0,0,1],
-        [0,1,0,-1,0,1,0,0,1]
+        ['1.000000','0.000000','0.000000','0.000000','1.000000','0.000000','0.000000','0.000000','1.000000'],
+        ['-1.000000','0.000000','1.000000','0.000000','-1.000000','1.000000','0.000000','0.000000','1.000000'],
+        ['0.000000','-1.000000','1.000000','1.000000','0.000000','0.000000','0.000000','0.000000','1.000000'],
+        ['0.000000','1.000000','0.000000','-1.000000','0.000000','1.000000','0.000000','0.000000','1.000000']
         ]
 
 firstrun=True
@@ -47,6 +49,7 @@ import re
 import subprocess
 import os.path
 import signal
+import time
 from gi.repository import Gtk, GdkPixbuf, GObject
 
 hasAppIndicator = True
@@ -55,16 +58,18 @@ try:
 except:
     hasAppIndicator = False
 
+my_env = os.environ.copy()
+
 def twos_comp(val):
     if val & (1 << (16-1)) != 0:
         val = val - (1 << 16)
     return val
 
 def disableTouch(id):
-    subprocess.call([xinput, "disable", id])
+    subprocess.call([xinput, "disable", id], env=my_env)
 
 def enableTouch(id):
-    subprocess.call([xinput, "enable", id])
+    subprocess.call([xinput, "enable", id], env=my_env)
 
 def refreshTouch(id):
     disableTouch(id)
@@ -72,21 +77,21 @@ def refreshTouch(id):
 
 def checkDisplays():
     check_displays = "xrandr | grep -w 'connected'"
-    str_displays = str(subprocess.check_output(check_displays, shell=True).lower().rstrip())
+    str_displays = str(subprocess.check_output(check_displays, shell=True, env=my_env).lower().rstrip())
     list_displays = str_displays.splitlines()
     int_displays = len(list_displays)
     return int_displays
 
 def checkNumAxes(id):
     check_num_axes = "xinput list-props " + id + " | grep 'Axis Labels' | cut -f3 | cut -d ',' -f1-4 --output-delimiter=$'\n'"
-    str_num_axes = str(subprocess.check_output(check_num_axes, shell=True).lower().rstrip())
+    str_num_axes = str(subprocess.check_output(check_num_axes, shell=True, env=my_env).lower().rstrip())
     list_num_axes = str_num_axes.splitlines()
     int_num_axes = len(list_num_axes)
     return int_num_axes
 
 def checkProximity(id):
     stylusProximityCommand = 'xinput query-state ' + id + ' | grep Proximity | cut -d " " -f3 | cut -d "=" -f2'
-    return str(subprocess.check_output(stylusProximityCommand, shell=True).lower().rstrip())
+    return str(subprocess.check_output(stylusProximityCommand, shell=True, env=my_env).lower().rstrip())
 
 def getOrientation(accelX, accelY, accelZ):
     absAccelX = abs(accelX)
@@ -104,19 +109,16 @@ def getOrientation(accelX, accelY, accelZ):
 
 def rotate(orientation, matrix):
     i = -1
+    subprocess.call([xrandr, "-o", orientation], env=my_env)
+    time.sleep(5)
     for input_ in inputnames:
         i += 1
         pattern = re.compile(input_ + " *\tid=([0-9]+)\t")
-        output = subprocess.check_output([xinput, "list"]).decode("unicode_escape")
+        output = subprocess.check_output([xinput, "list"], env=my_env).decode("unicode_escape")
         matches = re.findall(pattern, output)
-        if len(matches) == 1:
-            subprocess.call([xrandr, "-o", orientation])
-            subprocess.call([xinput, "set-prop", matches[0], "Coordinate Transformation Matrix"] + [str(m) for m in matrix])
-            penpattern = re.compile(pennames[i] + " *\tid=([0-9]+)\t")
-            penmatches = re.findall(penpattern, output)
-            for id in penmatches:
-                subprocess.call([xinput, "map-to-output", id, displayname])
-            refreshTouch(matches[0])
+        if len(matches) == 1:   
+            subprocess.call([xinput, "set-prop", matches[0], "--type=float", "Coordinate Transformation Matrix"] + [m for m in matrix], env=my_env)
+            # refreshTouch(matches[0])
 
 def toggleRotLock(event):
     global rotlock
@@ -162,7 +164,7 @@ def checkPalmReject():
     for input_ in inputnames:
         i += 1
         pattern = re.compile(input_ + " *\tid=([0-9]+)\t")
-        output = subprocess.check_output([xinput, "list"]).decode("unicode_escape")
+        output = subprocess.check_output([xinput, "list"], env=my_env).decode("unicode_escape")
         matches = re.findall(pattern, output)
         if len(matches) == 1:
             penpattern = re.compile(pennames[i] + " *\tid=([0-9]+)\t")
